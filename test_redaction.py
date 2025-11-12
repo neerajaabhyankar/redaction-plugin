@@ -1,9 +1,6 @@
 ### Imports
 
 import time
-import os
-
-import cv2
 
 import fiftyone as fo
 import fiftyone.zoo as foz
@@ -16,12 +13,13 @@ from apply_redaction import create_redactions
 
 dataset = foz.load_zoo_dataset("coco-2017", split="validation")
 
+dataset.persistent = True
 create_redactions(
     dataset,
     redaction_field="ground_truth",
     redaction_filter={"supercategory": "person"},
     redaction_type="bounding_box",
-    redaction_method="blur",
+    redaction_method="mask",
 )
 
 ### Launch App

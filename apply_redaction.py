@@ -28,20 +28,11 @@ def hash_config(
 
 def make_redacted_filepath(
         filepath,
-        redaction_field,
-        redaction_filter,
-        redaction_type,
-        redaction_method,
+        redaction_config_hash,
     ):
-    config_hash = hash_config(
-        redaction_field,
-        redaction_filter,
-        redaction_type,
-        redaction_method,
-    )
     dirpath, filename = os.path.split(filepath)
 
-    redacted_dir = os.path.join(dirpath, config_hash)
+    redacted_dir = os.path.join(dirpath, redaction_config_hash)
     if os.path.exists(redacted_dir) and not os.path.isdir(redacted_dir):
         raise FileExistsError(f"Cannot create redacted directory: {redacted_dir} exists and is not a directory")
     else:
@@ -72,13 +63,23 @@ def create_redactions(
     
     for sample in unredacted_dataset:
         if ("blur" in sample.tags) or ("mask" in sample.tags) or ("anonymize" in sample.tags):
-            logger.debug(f"Sample already has redaction tags: {sample.tags}; skipping redaction...")
+            logger.debug(f"Sample is a redacted sample with tags: {sample.tags}; skipping redaction...")
             continue
         
+        redaction_config_hash = hash_config(
+            redaction_field,
+            redaction_filter,
+            redaction_type,
+            redaction_method,
+        )
         redacted_path = make_redacted_filepath(
             sample.filepath,
-            redaction_field, redaction_filter, redaction_type, redaction_method,
+            redaction_config_hash,
         )
+        if sample.has_field("redacted_sample_ids") and sample.redacted_sample_ids and redaction_config_hash in sample.redacted_sample_ids:
+            logger.debug(f"Sample has a redacted version with config hash = {redaction_config_hash}, id = {sample.redacted_sample_ids[redaction_config_hash]}; skipping redaction...")
+            continue
+
         if os.path.exists(redacted_path) and not force_recreate:
             logger.debug(f"Redacted file already exists: {redacted_path}; skipping creation...")
         else:
@@ -92,18 +93,24 @@ def create_redactions(
                 anonymize_file_at(redacted_path, sample[redaction_field], redaction_filter)
             else:
                 raise ValueError(f"Unknown redaction method: {redaction_method}")
-        
-            # TODO(neeraja): handle case where the path exists but the sample isn't part of the dataset
-            
-            # duplicate the sample and set the redacted filepath
-            redacted_sample = sample.copy()
-            redacted_sample["filepath"] = redacted_path
-            redaction_key_string = "_" + "_".join(f"{k}={v}" for k, v in redaction_filter.items()) if redaction_filter else ""
-            redacted_sample.tags.append(f"redacted_{redaction_field}_{redaction_key_string}")
-            redacted_sample.tags.append(redaction_type)
-            redacted_sample.tags.append(redaction_method)
-            logger.info(f"Adding redacted sample at filepath: {redacted_path}")
-            unredacted_dataset.add_sample(redacted_sample)
+
+        # duplicate the sample and set the redacted filepath
+        redacted_sample = sample.copy()
+        redacted_sample["filepath"] = redacted_path
+        redaction_key_string = "_" + "_".join(f"{k}={v}" for k, v in redaction_filter.items()) if redaction_filter else ""
+        redacted_sample.tags.append(f"redacted_{redaction_field}_{redaction_key_string}")
+        redacted_sample.tags.append(redaction_type)
+        redacted_sample.tags.append(redaction_method)
+        logger.info(f"Adding redacted sample at filepath: {redacted_path}")
+
+        # link the samples to each other
+        sample["redacted_sample_ids"] = {
+            redaction_config_hash: redacted_sample.id
+        }
+        sample.save()
+        redacted_sample["original_sample_id"] = sample.id
+        unredacted_dataset.add_sample(redacted_sample)
+        redacted_sample.save()
     
     unredacted_dataset.save()
     return None
