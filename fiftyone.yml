@@ -1,0 +1,11 @@
+fiftyone:
+  version: ">=1.11.0"
+name: "@neerajaabhyankar/redaction-plugin"
+type: plugin
+author: Neeraja Abhyankar
+version: 1.0.0
+url: https://github.com/neerajaabhyankar/redaction-plugin
+license: Apache 2.0
+description: Redact sensitive content in a FiftyOne dataset
+operators:
+  - create_redactions

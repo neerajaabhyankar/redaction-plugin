@@ -16,6 +16,7 @@ def filter_detections(
     Returns:
         A new iterable containing only the filtered detections
     """
+    #TODO(neeraja): remove the hardcoded "detections" attribute
     detections_iterable = detections_object.detections if detections_object else []
     detections_iterable = detections_iterable or []
     if not redaction_filter:
