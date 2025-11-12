@@ -22,6 +22,23 @@ create_redactions(
     redaction_method="mask",
 )
 
+### Test without GUI
+
+import fiftyone.operators as foo
+
+ctx = {
+    "selected": [
+        "69141a60322a219721f89461",
+        "69141a60322a219721f89485",
+    ],
+    "active_fields": ["ground_truth"],
+    "dataset": dataset,
+    "view": dataset[:10],
+}
+
+# red = foo.execute_operator("@neerajaabhyankar-redaction-plugin-local/create_redactions", ctx)
+red = foo.execute_operator("@neerajaabhyankar/redaction-plugin/create_redactions", ctx)
+
 ### Launch App
 
 # only show samples with persons
