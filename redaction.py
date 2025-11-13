@@ -1,8 +1,10 @@
 from typing import Optional, Iterable
+import logging
+import numpy as np
 import cv2
 import fiftyone as fo
 
-
+logger = logging.getLogger(__name__)
 def filter_detections(
         detections_object: fo.core.labels.Detections,
         redaction_filter: Optional[dict] = None,
@@ -32,6 +34,7 @@ def mask_file_at(
         filepath: str,
         detections_object: fo.core.labels.Detections,
         redaction_filter: Optional[dict] = None,
+        apply_on_segmentation: bool = False,
     ) -> None:
     """
     Blacks out the regions specified by the detections in the image at filepath.
@@ -47,7 +50,18 @@ def mask_file_at(
         y1 = int(bbox[1] * image.shape[0])
         x2 = int((bbox[0] + bbox[2]) * image.shape[1])
         y2 = int((bbox[1] + bbox[3]) * image.shape[0])
-        image[y1:y2, x1:x2] = 0  # black rectangle
+        if apply_on_segmentation:
+            mask = detection.get_mask()
+            if not mask:
+                logger.warning(f"No mask found for detection: {detection}")
+                continue
+            mask = mask[:min(y2-y1, mask.shape[0]), :min(x2-x1, mask.shape[1])]
+            if np.sum(mask) == 0:
+                logger.warning(f"Empty mask found for detection: {detection}")
+                continue
+            image[y1:y2, x1:x2][mask] = 0
+        else:
+            image[y1:y2, x1:x2] = 0  # black rectangle
     
     cv2.imwrite(filepath, image)
     return
@@ -57,6 +71,7 @@ def blur_file_at(
         filepath: str,
         detections_object: fo.core.labels.Detections,
         redaction_filter: Optional[dict] = None,
+        apply_on_segmentation: bool = False,
     ) -> None:
     """
     Blurs out the regions specified by the detections in the image at filepath.
@@ -76,7 +91,19 @@ def blur_file_at(
         y1 = int(bbox[1] * image.shape[0])
         x2 = int((bbox[0] + bbox[2]) * image.shape[1])
         y2 = int((bbox[1] + bbox[3]) * image.shape[0])
-        image[y1:y2, x1:x2] = blurred_image[y1:y2, x1:x2]  # blur rectangle
+        if apply_on_segmentation:
+            mask = detection.get_mask()
+            if not mask:
+                logger.warning(f"No mask found for detection: {detection}")
+                breakpoint()
+                continue
+            mask = mask[:min(y2-y1, mask.shape[0]), :min(x2-x1, mask.shape[1])]
+            if np.sum(mask) == 0:
+                logger.warning(f"Empty mask found for detection: {detection}")
+                continue
+            image[y1:y2, x1:x2][mask] = blurred_image[y1:y2, x1:x2][mask]  # blur rectangle
+        else:
+            image[y1:y2, x1:x2] = blurred_image[y1:y2, x1:x2]  # blur rectangle
     
     cv2.imwrite(filepath, image)
     return

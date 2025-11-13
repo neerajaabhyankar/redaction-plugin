@@ -57,9 +57,12 @@ def create_redactions(
     2. Creates samples with the redacted filepaths set as default
     3. Adds tags to the samples based on the redaction method
     """
-    # TODO(neeraja): support mask-based redaction
-    if redaction_type != "bounding_box":
-        raise NotImplementedError("Currently only bounding box redaction is supported")
+    if redaction_type == "segmentation_mask":
+        apply_on_segmentation = True
+    elif redaction_type == "bounding_box":
+        apply_on_segmentation = False
+    else:
+        raise ValueError(f"Unknown redaction type: {redaction_type}")
     
     for sample in unredacted_dataset:
         if ("blur" in sample.tags) or ("mask" in sample.tags) or ("anonymize" in sample.tags):
@@ -86,11 +89,11 @@ def create_redactions(
             shutil.copy(sample.filepath, redacted_path)
 
             if redaction_method == "mask":
-                mask_file_at(redacted_path, sample[redaction_field], redaction_filter)
+                mask_file_at(redacted_path, sample[redaction_field], redaction_filter, apply_on_segmentation)
             elif redaction_method == "blur":
-                blur_file_at(redacted_path, sample[redaction_field], redaction_filter)
+                blur_file_at(redacted_path, sample[redaction_field], redaction_filter, apply_on_segmentation)
             elif redaction_method == "anonymize":
-                anonymize_file_at(redacted_path, sample[redaction_field], redaction_filter)
+                anonymize_file_at(redacted_path, sample[redaction_field], redaction_filter, apply_on_segmentation)
             else:
                 raise ValueError(f"Unknown redaction method: {redaction_method}")
 
