@@ -6,7 +6,7 @@ import fiftyone as fo
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
-from apply_redaction import create_redactions
+from apply_redaction import create_redaction_samples, create_redaction_fields
 
 
 # ### Load COCO Dataset
@@ -55,17 +55,18 @@ dataset = fo.load_dataset("quickstart")
 
 persons = dataset.filter_labels("sam", F("label") == "person")
 
-create_redactions(
+redacted_persons = create_redaction_fields(
     persons,
     redaction_field="sam",
     redaction_filter={"label": "person"},
     redaction_type="segmentation_mask",
-    redaction_method="mask",
+    redaction_method="blur",
 )
+# redacted_persons.app_config.grid_media_field = f"redacted_filepath_sam_label=person_segmentation_mask_blur"
 
 ### Launch App
 
-session = fo.launch_app(persons)
+session = fo.launch_app(redacted_persons)
 
 
 ### Zero Shot Instance Segmentation

@@ -5,6 +5,8 @@ import cv2
 import fiftyone as fo
 
 logger = logging.getLogger(__name__)
+
+
 def filter_detections(
         detections_object: fo.core.labels.Detections,
         redaction_filter: Optional[dict] = None,
@@ -52,10 +54,10 @@ def mask_file_at(
         y2 = int((bbox[1] + bbox[3]) * image.shape[0])
         if apply_on_segmentation:
             mask = detection.get_mask()
-            if not mask:
+            if mask is None:
                 logger.warning(f"No mask found for detection: {detection}")
                 continue
-            mask = mask[:min(y2-y1, mask.shape[0]), :min(x2-x1, mask.shape[1])]
+            mask = np.pad(mask, [(0, max(0, y2-y1)), (0, max(0, x2-x1))])[:y2-y1, :x2-x1]
             if np.sum(mask) == 0:
                 logger.warning(f"Empty mask found for detection: {detection}")
                 continue
@@ -93,11 +95,10 @@ def blur_file_at(
         y2 = int((bbox[1] + bbox[3]) * image.shape[0])
         if apply_on_segmentation:
             mask = detection.get_mask()
-            if not mask:
+            if mask is None:
                 logger.warning(f"No mask found for detection: {detection}")
-                breakpoint()
                 continue
-            mask = mask[:min(y2-y1, mask.shape[0]), :min(x2-x1, mask.shape[1])]
+            mask = np.pad(mask, [(0, max(0, y2-y1)), (0, max(0, x2-x1))])[:y2-y1, :x2-x1]
             if np.sum(mask) == 0:
                 logger.warning(f"Empty mask found for detection: {detection}")
                 continue
