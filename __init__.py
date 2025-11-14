@@ -114,7 +114,7 @@ class CreateRedactionSamples(foo.Operator):
         #TODO(neeraja): why are we recreating?
         ctx.dataset.persistent = True
         create_redaction_samples(
-            ctx.dataset,
+            ctx.view,
             redaction_field=ctx.params.get("redaction_field"),
             redaction_filter=ctx.params.get("redaction_filter"),
             redaction_type=ctx.params.get("redaction_type_choices", "bounding_box"),
@@ -136,10 +136,9 @@ class CreateRedactionFields(foo.Operator):
         return _input_control_flow(ctx)
 
     def execute(self, ctx):
-        #TODO(neeraja): why are we recreating?
         ctx.dataset.persistent = True
         create_redaction_fields(
-            ctx.dataset,
+            ctx.view,
             redaction_field=ctx.params.get("redaction_field"),
             redaction_filter=ctx.params.get("redaction_filter"),
             redaction_type=ctx.params.get("redaction_type_choices", "bounding_box"),

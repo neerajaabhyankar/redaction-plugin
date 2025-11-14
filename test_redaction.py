@@ -75,3 +75,43 @@ session = fo.launch_app(redacted_persons)
 # await zsis(twenty_samples, labels=["human_face"], model_name="SAM", label_field="sam")
 # await zsis(twenty_samples, labels=["person"], model_name="SAM", label_field="sam")
 
+# ### Test without GUI
+
+
+import fiftyone as fo
+import fiftyone.zoo as foz
+from fiftyone import ViewField as F
+import fiftyone.operators as foo
+
+dataset = foz.load_zoo_dataset("quickstart")
+
+ctx = {
+    "active_fields": ["ground_truth"],
+    "dataset": dataset,
+    # "view": dataset[:10],
+    # "view": dataset.select("6916e49628d06b5c1fc39f8a"),
+    "params": {
+        "redaction_field": "ground_truth",
+        "redaction_filter": {"label": "person"},
+        "redaction_type_choices": "bounding_box",
+        "redaction_method_choices": "blur",
+    },
+}
+
+# # red = foo.execute_operator("@neerajaabhyankar-redaction-plugin-local/create_redactions", ctx)
+red = foo.execute_operator("@neerajaabhyankar/redaction-plugin/create_redaction_fields", ctx)
+
+# # logging
+
+# import logging
+# LOGPATH = "/tmp/fologs/debug2.log"
+# def setup_file_logger():
+#     logger = logging.getLogger("redaction_logger")
+#     if not logger.handlers:
+#         h = logging.FileHandler(LOGPATH)
+#         fmt = logging.Formatter("%(asctime)s %(process)d %(threadName)s %(levelname)s %(message)s")
+#         h.setFormatter(fmt)
+#         logger.addHandler(h)
+#         logger.setLevel(logging.DEBUG)
+#     return logger
+# logger = setup_file_logger()
