@@ -8,4 +8,5 @@ url: https://github.com/neerajaabhyankar/redaction-plugin
 license: Apache 2.0
 description: Redact sensitive content in a FiftyOne dataset
 operators:
-  - create_redactions
+  - create_redaction_samples
+  - create_redaction_fields
