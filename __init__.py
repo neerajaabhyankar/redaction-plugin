@@ -15,6 +15,23 @@ with add_sys_path(os.path.dirname(os.path.abspath(__file__))):
     from apply_redaction import create_redaction_samples, create_redaction_fields
 
 
+MODEL_CONFIGS = {
+    # ("person", "bounding_box"),
+    # ("person", "segmentation_mask"),
+    ("face", "bounding_box"): {
+        "model_name": "EsraaFouad/detr_fine_tune_face_detection_final",
+        "field_name": "detr-ft-face",
+        "confidence_thresh": 0.5,
+        # "labels": ["face"],
+    },
+    # ("face", "segmentation_mask"),
+    # ("human_face", "bounding_box"),
+    # ("human_face", "segmentation_mask"),
+    # ("license_plate", "bounding_box"),
+    # ("license_plate", "segmentation_mask"),
+}
+
+
 def _input_control_flow(ctx):
     inputs = types.Object()
     
@@ -47,36 +64,41 @@ def _input_control_flow(ctx):
         field_dropdown = types.Dropdown()
         for source in detection_sources:
             field_dropdown.add_choice(source, label=source)
-
-        enum_kwargs = {
-            "label": "Redaction Field",
-            "view": field_dropdown,
-            "multiple": False,
-        }
-        if len(field_dropdown.choices) > 0:
-            enum_kwargs["default"] = field_dropdown.choices[0].value
         inputs.enum(
             "redaction_field",
             field_dropdown.values(),
+            default="ground_truth",
+            label="Field in which redaction label detections are stored",
+            view=field_dropdown,
+            multiple=False,
             required=True,
-            **enum_kwargs
         )
 
-        # Redaction filter
-        autocomplete_view_keys = types.AutocompleteView()
-        for choice_key in ["category", "supercategory", "classification", "label"]:
-            autocomplete_view_keys.add_choice(choice_key, label=choice_key)
-        autocomplete_view_values = types.AutocompleteView()
-        for choice_value in ["face", "person", "number", "license plate"]:
-            autocomplete_view_values.add_choice(choice_value, label=choice_value)
-        inputs.map(
-            "redaction_filter",
-            key_type=types.String(),
-            key=autocomplete_view_keys,
-            value_type=types.String(),
-            value=autocomplete_view_values,
-            label="Redaction Filter (key: value list)",
-            description="Filter the redactions by a specific field",
+        ## Note: getting rid of the dict-style filter in favor of "label": <redaction_labels>
+        # # Redaction filter
+        # autocomplete_view_keys = types.AutocompleteView()
+        # for choice_key in ["category", "supercategory", "classification", "label"]:
+        #     autocomplete_view_keys.add_choice(choice_key, label=choice_key)
+        # autocomplete_view_values = types.AutocompleteView()
+        # for choice_value in ["face", "person", "number", "license plate"]:
+        #     autocomplete_view_values.add_choice(choice_value, label=choice_value)
+        # inputs.map(
+        #     "redaction_filter",
+        #     key_type=types.String(),
+        #     key=autocomplete_view_keys,
+        #     value_type=types.String(),
+        #     value=autocomplete_view_values,
+        #     label="Redaction Filter (key: value list)",
+        #     description="Filter the redactions by a specific field",
+        # )
+        
+        # Redaction Label
+        # TODO(neeraja): populate a dropdown based on existing labels in the dataset
+        inputs.str(
+            "redaction_labels",
+            default="person",
+            label="Labels to redact (comma-separated)",
+            required=True,
         )
 
         # Redaction type
@@ -105,28 +127,19 @@ def _input_control_flow(ctx):
         )
 
     elif detection_mode == "apply_model":
-        # Model config dropdown
         model_config_dropdown = types.Dropdown()
-        
-        MODEL_CONFIGS = [
-            ("human_face", "bounding_box"),
-            ("human_face", "segmentation_mask"),
-            ("face", "bounding_box"),
-            ("face", "segmentation_mask"),
-            ("license_plate", "bounding_box"),
-            ("license_plate", "segmentation_mask"),
-        ]
-        for model_config in MODEL_CONFIGS:
-            model_config_dropdown.add_choice(model_config, label=" ".join(model_config))
+        for model_config_key in MODEL_CONFIGS.keys():
+            model_config_dropdown.add_choice(model_config_key, label=" ".join(model_config_key))
         
         inputs.enum(
-            "model_config_choices",
+            "model_config_key_choices",
             model_config_dropdown.values(),
-            default=model_config_dropdown.choices[0].value if len(model_config_dropdown.choices) > 0 else None,
+            # default=model_config_dropdown.choices[0].value if len(model_config_dropdown.choices) > 0 else None,
             label="Sensitive Content Detection Model Configuration",
             view=model_config_dropdown,
             required=True,
         )
+        model_config_key = ctx.params.get("model_config_key_choices")
 
         # Redaction method
         radio_choices = types.RadioGroup()
@@ -141,18 +154,21 @@ def _input_control_flow(ctx):
             view=radio_choices,
         )
 
-        model_config = ctx.params.get("model_config_choices")
-
-        """
-        1. determine the redaction field
-        2. determine the redaction filter
-        """
-
-        ctx.params["redaction_type_choices"] = model_config[1]
-        
-
-
     return types.Property(inputs)
+
+
+def _model_config_resolution_flow(ctx):
+    model_config_key = ctx.params.get("model_config_key_choices")
+    if model_config_key is None:
+        raise ValueError("Model configuration key must be selected")
+    else:
+        model_config = MODEL_CONFIGS[model_config_key]
+        ctx.params["model_name"] = model_config["model_name"]
+        ctx.params["confidence_thresh"] = model_config["confidence_thresh"]
+        ctx.params["redaction_field"] = model_config["field_name"]
+        ctx.params["redaction_labels"] = [ll.strip() for ll in model_config_key[0].split(",")]
+        ctx.params["redaction_type_choices"] = model_config_key[1]
+    return ctx
 
 class CreateRedactionSamples(foo.Operator):
     @property
@@ -176,17 +192,17 @@ class CreateRedactionSamples(foo.Operator):
             raise ValueError("Detection mode must be selected")
         
         if detection_mode == "apply_model":
-            # TODO: Implement model-based detection logic
-            model_config = ctx.params.get("model_config")
-            raise NotImplementedError(
-                f"Model-based detection not yet implemented. "
-                f"Selected config: {model_config}"
+            ctx =_model_config_resolution_flow(ctx)
+            ctx.view.apply_model(
+                model_name=ctx.params.get("model_name"),
+                label_field=ctx.params.get("redaction_field"),
+                confidence_thresh=ctx.params.get("confidence_thresh"),
             )
-        
+
         create_redaction_samples(
             ctx.view,
             redaction_field=ctx.params.get("redaction_field"),
-            redaction_filter=ctx.params.get("redaction_filter"),
+            redaction_labels=[ll.strip() for ll in ctx.params.get("redaction_labels").split(",")],
             redaction_type=ctx.params.get("redaction_type_choices", "bounding_box"),
             redaction_method=ctx.params.get("redaction_method_choices", "mask"),
         )
@@ -214,17 +230,17 @@ class CreateRedactionFields(foo.Operator):
             raise ValueError("Detection mode must be selected")
         
         if detection_mode == "apply_model":
-            # TODO: Implement model-based detection logic
-            model_config = ctx.params.get("model_config")
-            raise NotImplementedError(
-                f"Model-based detection not yet implemented. "
-                f"Selected config: {model_config}"
+            ctx =_model_config_resolution_flow(ctx)
+            ctx.view.apply_model(
+                model_name=ctx.params.get("model_name"),
+                label_field=ctx.params.get("redaction_field"),
+                confidence_thresh=ctx.params.get("confidence_thresh"),
             )
         
         create_redaction_fields(
             ctx.view,
             redaction_field=ctx.params.get("redaction_field"),
-            redaction_filter=ctx.params.get("redaction_filter"),
+            redaction_labels=[ll.strip() for ll in ctx.params.get("redaction_labels").split(",")],
             redaction_type=ctx.params.get("redaction_type_choices", "bounding_box"),
             redaction_method=ctx.params.get("redaction_method_choices", "mask"),
         )

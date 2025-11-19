@@ -2,7 +2,7 @@ import os
 import shutil
 import hashlib
 import json
-from typing import Optional, Union
+from typing import Optional, Union, List
 import logging
 
 import fiftyone as fo
@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 
 def hash_config(
         redaction_field,
-        redaction_filter,
+        redaction_labels,
         redaction_type,
         redaction_method,
     ):
     return hashlib.sha256(json.dumps({
         "redaction_field": redaction_field,
-        "redaction_filter": redaction_filter,
+        "redaction_labels": redaction_labels,
         "redaction_type": redaction_type,
         "redaction_method": redaction_method,
     }, sort_keys=True).encode()).hexdigest()
@@ -50,7 +50,8 @@ def create_redaction_samples(
         # unredacted_dataset: fo.core.dataset.Dataset,
         unredacted_view: Union[fo.core.dataset.Dataset, fo.core.view.DatasetView],
         redaction_field: str = "ground_truth",
-        redaction_filter: Optional[dict] = {"supercategory": "person"},
+        # redaction_filter: Optional[dict] = {"supercategory": "person"},
+        redaction_labels: List[str] = ["person"],
         redaction_type: str = "bounding_box",  # options: "bounding_box", "mask"
         redaction_method: str = "mask",  # options: "mask", "blur"
         force_recreate: bool = False,
@@ -62,9 +63,10 @@ def create_redaction_samples(
     3. Adds tags to both the original and redacted samples based on the redaction method
     """
     redaction_config_hash = hash_config(
-        redaction_field, redaction_filter, redaction_type, redaction_method
+        redaction_field, redaction_labels, redaction_type, redaction_method
     )
-    redaction_key_string = "_" + "_".join(f"{k}={v}" for k, v in redaction_filter.items()) if redaction_filter else ""
+    # redaction_key_string = "_" + "_".join(f"{k}={v}" for k, v in redaction_filter.items()) if redaction_filter else ""
+    redaction_key_string = "_".join(redaction_labels)
     redaction_tag = f"redacted_{redaction_field}_{redaction_key_string}_{redaction_type}_{redaction_method}"
 
     for sample in unredacted_view:
@@ -88,7 +90,7 @@ def create_redaction_samples(
             redact_file_at(
                 redacted_path,
                 sample[redaction_field],
-                redaction_filter=redaction_filter,
+                redaction_labels=redaction_labels,
                 redaction_type=redaction_type,
                 redaction_method=redaction_method,
             )
@@ -118,7 +120,8 @@ Creates new media fields
 def create_redaction_fields(
         unredacted_view: Union[fo.core.dataset.Dataset, fo.core.view.DatasetView],
         redaction_field: str = "ground_truth",
-        redaction_filter: Optional[dict] = {"supercategory": "person"},
+        # redaction_filter: Optional[dict] = {"supercategory": "person"},
+        redaction_labels: List[str] = ["person"],
         redaction_type: str = "bounding_box",  # options: "bounding_box", "mask"
         redaction_method: str = "mask",  # options: "mask", "blur"
         force_recreate: bool = False,
@@ -130,9 +133,10 @@ def create_redaction_fields(
     3. Adds a tag to the sample based on the redaction method
     """
     redaction_config_hash = hash_config(
-        redaction_field, redaction_filter, redaction_type, redaction_method
+        redaction_field, redaction_labels, redaction_type, redaction_method
     )
-    redaction_key_string = "_" + "_".join(f"{k}={v}" for k, v in redaction_filter.items()) if redaction_filter else ""
+    # redaction_key_string = "_" + "_".join(f"{k}={v}" for k, v in redaction_filter.items()) if redaction_filter else ""
+    redaction_key_string = "_".join(redaction_labels)
     redaction_tag = f"redacted_{redaction_field}_{redaction_key_string}_{redaction_type}_{redaction_method}"
 
     for sample in unredacted_view:
@@ -152,7 +156,7 @@ def create_redaction_fields(
             redact_file_at(
                 redacted_path,
                 sample[redaction_field],
-                redaction_filter=redaction_filter,
+                redaction_labels=redaction_labels,
                 redaction_type=redaction_type,
                 redaction_method=redaction_method,
             )
