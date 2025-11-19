@@ -5,10 +5,13 @@
 """
 
 import os
+import re
 
 import fiftyone as fo
+import fiftyone.zoo as foz
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
+import fiftyone.utils.transformers as fout
 from fiftyone.core.utils import add_sys_path
 
 with add_sys_path(os.path.dirname(os.path.abspath(__file__))):
@@ -18,18 +21,55 @@ with add_sys_path(os.path.dirname(os.path.abspath(__file__))):
 MODEL_CONFIGS = {
     # ("person", "bounding_box"),
     # ("person", "segmentation_mask"),
-    ("face", "bounding_box"): {
-        "model_name": "EsraaFouad/detr_fine_tune_face_detection_final",
+    "redaction_labels = [face] | redaction_type = bounding_box": {
+        "detection_model_name": "EsraaFouad/detr_fine_tune_face_detection_final",
+        "segmentation_model_name": None,
         "field_name": "detr-ft-face",
         "confidence_thresh": 0.5,
-        # "labels": ["face"],
     },
-    # ("face", "segmentation_mask"),
+    "redaction_labels = [face] | redaction_type = segmentation_mask": {
+        "detection_model_name": "EsraaFouad/detr_fine_tune_face_detection_final",
+        "segmentation_model_name": "segment-anything-vitb-torch",
+        "field_name": "detr-ft-face",
+        "confidence_thresh": 0.5,
+    },
     # ("human_face", "bounding_box"),
     # ("human_face", "segmentation_mask"),
     # ("license_plate", "bounding_box"),
     # ("license_plate", "segmentation_mask"),
 }
+
+
+def _get_device_name():
+    import torch
+    if torch.cuda.is_available():
+        if torch.cuda.device_count() > 0:
+            return "cuda:0"
+        else:
+            return "cpu"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    else:
+        return "cpu"
+
+
+def _get_detection_model(model_name):
+    # TODO(neeraja): ensure this works for other models too
+    from transformers import AutoModelForObjectDetection
+    detr_model = AutoModelForObjectDetection.from_pretrained(model_name)
+    detr_model.to(_get_device_name())
+    return fout.convert_transformers_model(detr_model, task="object-detection")
+
+
+def _get_segmentation_model(model_name):
+    import torch
+    fo_model = foz.load_zoo_model("segment-anything-vitb-torch", device=_get_device_name())
+    device_name = _get_device_name()
+    fo_model.config.device = device_name
+    fo_model._device = torch.device(device_name)
+    fo_model._using_gpu = True  # MPS is considered GPU-like
+    fo_model._model.to(device_name)
+    return fo_model
 
 
 def _input_control_flow(ctx):
@@ -129,7 +169,7 @@ def _input_control_flow(ctx):
     elif detection_mode == "apply_model":
         model_config_dropdown = types.Dropdown()
         for model_config_key in MODEL_CONFIGS.keys():
-            model_config_dropdown.add_choice(model_config_key, label=" ".join(model_config_key))
+            model_config_dropdown.add_choice(model_config_key, label=model_config_key)
         
         inputs.enum(
             "model_config_key_choices",
@@ -162,13 +202,32 @@ def _model_config_resolution_flow(ctx):
     if model_config_key is None:
         raise ValueError("Model configuration key must be selected")
     else:
+        redaction_labels, redaction_type = model_config_key.split("|")
+        redaction_labels = redaction_labels.split("=")[1].strip().strip("[").strip("]")
+        redaction_type = redaction_type.split("=")[1].strip()
+        ctx.params["redaction_labels"] = redaction_labels
+        ctx.params["redaction_type_choices"] = redaction_type
         model_config = MODEL_CONFIGS[model_config_key]
-        ctx.params["model_name"] = model_config["model_name"]
+        ctx.params["detection_model_name"] = model_config["detection_model_name"]
         ctx.params["confidence_thresh"] = model_config["confidence_thresh"]
         ctx.params["redaction_field"] = model_config["field_name"]
-        ctx.params["redaction_labels"] = [ll.strip() for ll in model_config_key[0].split(",")]
-        ctx.params["redaction_type_choices"] = model_config_key[1]
+    
     return ctx
+
+
+def _model_application_flow(ctx, view):
+    view.apply_model(
+        model=_get_detection_model(ctx.params.get("detection_model_name")),
+        label_field=ctx.params.get("redaction_field"),
+        confidence_thresh=ctx.params.get("confidence_thresh"),
+    )
+    if ctx.params.get("redaction_type_choices") == "segmentation_mask":
+        view.apply_model(
+            model=_get_segmentation_model(ctx.params.get("segmentation_model_name")),
+            label_field=ctx.params.get("redaction_field"),
+            prompt_field=ctx.params.get("redaction_field"),
+        )
+    return view
 
 class CreateRedactionSamples(foo.Operator):
     @property
@@ -186,6 +245,7 @@ class CreateRedactionSamples(foo.Operator):
 
     def execute(self, ctx):
         ctx.dataset.persistent = True
+        view = ctx.target_view()
         detection_mode = ctx.params.get("detection_mode")
         
         if detection_mode is None:
@@ -193,14 +253,10 @@ class CreateRedactionSamples(foo.Operator):
         
         if detection_mode == "apply_model":
             ctx =_model_config_resolution_flow(ctx)
-            ctx.view.apply_model(
-                model_name=ctx.params.get("model_name"),
-                label_field=ctx.params.get("redaction_field"),
-                confidence_thresh=ctx.params.get("confidence_thresh"),
-            )
+            view = _model_application_flow(ctx, view)
 
         create_redaction_samples(
-            ctx.view,
+            view,
             redaction_field=ctx.params.get("redaction_field"),
             redaction_labels=[ll.strip() for ll in ctx.params.get("redaction_labels").split(",")],
             redaction_type=ctx.params.get("redaction_type_choices", "bounding_box"),
@@ -224,6 +280,7 @@ class CreateRedactionFields(foo.Operator):
 
     def execute(self, ctx):
         ctx.dataset.persistent = True
+        view = ctx.target_view()
         detection_mode = ctx.params.get("detection_mode")
         
         if detection_mode is None:
@@ -231,14 +288,10 @@ class CreateRedactionFields(foo.Operator):
         
         if detection_mode == "apply_model":
             ctx =_model_config_resolution_flow(ctx)
-            ctx.view.apply_model(
-                model_name=ctx.params.get("model_name"),
-                label_field=ctx.params.get("redaction_field"),
-                confidence_thresh=ctx.params.get("confidence_thresh"),
-            )
+            view = _model_application_flow(ctx, view)
         
         create_redaction_fields(
-            ctx.view,
+            view,
             redaction_field=ctx.params.get("redaction_field"),
             redaction_labels=[ll.strip() for ll in ctx.params.get("redaction_labels").split(",")],
             redaction_type=ctx.params.get("redaction_type_choices", "bounding_box"),

@@ -130,6 +130,9 @@ def redact_file_at(
             image[y1:y2, x1:x2][mask] = redacted_image[y1:y2, x1:x2][mask]
         elif redaction_type == "bounding_box":
             image[y1:y2, x1:x2] = redacted_image[y1:y2, x1:x2]
+        elif redaction_type == "segmentation_mask" and mask is None:
+            logger.warning(f"No mask found for detection: {detection}")
+            continue
         else:
             raise ValueError(f"Unknown redaction type: {redaction_type}")
     
