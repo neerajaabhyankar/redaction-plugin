@@ -2,7 +2,7 @@ from typing import Optional, Iterable
 import logging
 import numpy as np
 import cv2
-from typing import Tuple
+from typing import Tuple, List
 import fiftyone as fo
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 GAUSSIAN_BLUR_KERNEL_SIZE = lambda w: (w // 10) * 2 + 1  # ensure ksize is odd
 
 
-def filter_detections(
+def filter_detections_by_dict(
         detections_object: fo.core.labels.Detections,
         redaction_filter: Optional[dict] = None,
     ) -> Iterable:
@@ -33,6 +33,29 @@ def filter_detections(
 
     for detection in detections_iterable:
         if all(getattr(detection, k, None) == v for k, v in redaction_filter.items()):
+            yield detection
+
+
+def filter_detections(
+        detections_object: fo.core.labels.Detections,
+        redaction_labels: List[str],
+    ) -> Iterable:
+    """
+    Filters the detections in the given Detections object based on the redaction_filter.
+
+    Args:
+        detections_object: fo.core.labels.Detections attribute of the sample
+        redaction_labels: List[str] of the labels to filter detections
+    Returns:
+        A new iterable containing only the filtered detections
+    """
+    #TODO(neeraja): remove the hardcoded "detections" attribute
+    detections_iterable = detections_object.detections if detections_object else []
+    detections_iterable = detections_iterable or []
+
+    for detection in detections_iterable:
+        #TODO(neeraja): decide whether to keep the hardcoded "label" key
+        if detection["label"] in redaction_labels:
             yield detection
 
 
@@ -70,7 +93,8 @@ def get_corners_from_bbox(bbox: Tuple[float, float, float, float], image_shape: 
 def redact_file_at(
         filepath: str,
         detections_object: fo.core.labels.Detections,
-        redaction_filter: Optional[dict] = None,
+        # redaction_filter: Optional[dict] = None,
+        redaction_labels: List[str] = ["person"],
         redaction_type: str = "bounding_box",  # options: "bounding_box", "segmentation_mask"
         redaction_method: str = "mask",  # options: "mask", "blur"
     ) -> None:
@@ -86,7 +110,7 @@ def redact_file_at(
         try:
             max_box_size = max([
                 max(detection.bounding_box[2] * image.shape[1], detection.bounding_box[3] * image.shape[0])
-                for detection in filter_detections(detections_object, redaction_filter)
+                for detection in filter_detections(detections_object, redaction_labels)
             ])
         except ValueError as e:
             # no detections found for redaction filter
@@ -98,7 +122,7 @@ def redact_file_at(
     else:
         raise ValueError(f"Unimplemented redaction method: {redaction_method}")
 
-    for detection in filter_detections(detections_object, redaction_filter):
+    for detection in filter_detections(detections_object, redaction_labels):
         x1, y1, x2, y2 = get_corners_from_bbox(detection.bounding_box, image.shape)
         mask = detection.get_mask()
         if redaction_type == "segmentation_mask" and mask is not None:
@@ -106,6 +130,9 @@ def redact_file_at(
             image[y1:y2, x1:x2][mask] = redacted_image[y1:y2, x1:x2][mask]
         elif redaction_type == "bounding_box":
             image[y1:y2, x1:x2] = redacted_image[y1:y2, x1:x2]
+        elif redaction_type == "segmentation_mask" and mask is None:
+            logger.warning(f"No mask found for detection: {detection}")
+            continue
         else:
             raise ValueError(f"Unknown redaction type: {redaction_type}")
     
